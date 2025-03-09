@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Modal, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import CountryPicker from 'react-native-country-picker-modal';
+import { storage } from '../config/firebase';
 
 const CompleteProfileScreen = ({ navigation }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [gender, setGender] = useState('');
   const [showGenderModal, setShowGenderModal] = useState(false);
+  const [countryCode, setCountryCode] = useState('US');
+  const [callingCode, setCallingCode] = useState('1');
+  const [profileImage, setProfileImage] = useState(null);
+  const [localImage, setLocalImage] = useState(null);
 
   const genderOptions = [
     { id: '1', label: 'Male' },
@@ -17,18 +24,50 @@ const CompleteProfileScreen = ({ navigation }) => {
     setShowGenderModal(false);
   };
 
-  const renderGenderOption = ({ item }) => (
-    <TouchableOpacity
-      style={styles.genderOption}
-      onPress={() => handleSelectGender(item)}
-    >
-      <Text style={styles.genderOptionText}>{item.label}</Text>
-    </TouchableOpacity>
-  );
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      setLocalImage(result.assets[0].uri);
+      uploadImage(result.assets[0].uri);
+    }
+  };
+
+  const uploadImage = async (uri) => {
+    const filename = uri.substring(uri.lastIndexOf('/') + 1);
+    const uploadUri = uri;
+    const storageRef = storage().ref(`profile_images/${filename}`);
+    
+    try {
+      await storageRef.putFile(uploadUri);
+      const url = await storageRef.getDownloadURL();
+      setProfileImage(url);
+    } catch (error) {
+      console.error('Image upload failed:', error);
+    }
+  };
+
+  const handleCompleteProfile = () => {
+    // Here you would typically save the profile data
+    // For now, we'll just navigate to the next screen
+    navigation.navigate('EnableLocationAccess');
+  };
+
+  useEffect(() => {
+    (async () => {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Sorry, we need camera roll permissions to make this work!');
+      }
+    })();
+  }, []);
 
   return (
     <View style={styles.container}>
-      {/* Back Button */}
       <TouchableOpacity 
         style={styles.backButton}
         onPress={() => navigation.goBack()}
@@ -37,28 +76,40 @@ const CompleteProfileScreen = ({ navigation }) => {
       </TouchableOpacity>
 
       <Text style={styles.title}>Complete your Profile</Text>
-      <Text style={styles.subtitle}>
-        Don't worry, only you can see your personal{'\n'}data, No one else will be able to see it.
-      </Text>
 
-      {/* Profile Image Section */}
       <View style={styles.profileImageContainer}>
-        <View style={styles.profileImage}>
-          <Ionicons name="person" size={40} color="#999" />
-        </View>
-        <TouchableOpacity style={styles.editButton}>
-          <Ionicons name="pencil" size={20} color="#fff" />
+        <TouchableOpacity onPress={pickImage}>
+          {localImage ? (
+            <Image source={{ uri: localImage }} style={styles.profileImage} />
+          ) : (
+            <View style={styles.profileImagePlaceholder}>
+              <Ionicons name="person" size={40} color="#999" />
+            </View>
+          )}
+          <View style={styles.editButton}>
+            <Ionicons name="pencil" size={20} color="#fff" />
+          </View>
         </TouchableOpacity>
       </View>
 
-      {/* Form Fields */}
       <View style={styles.formContainer}>
         <Text style={styles.label}>Phone Number</Text>
         <View style={styles.phoneInputContainer}>
-          <TouchableOpacity style={styles.countryCode}>
-            <Text>+46</Text>
-            <Ionicons name="chevron-down" size={20} color="#666" />
-          </TouchableOpacity>
+          <CountryPicker
+            withFilter
+            withCallingCode
+            withFlag
+            withEmoji
+            withModal
+            withFlagButton
+            countryCode={countryCode}
+            onSelect={(country) => {
+              setCountryCode(country.cca2);
+              setCallingCode(country.callingCode[0]);
+            }}
+            containerButtonStyle={styles.countryPickerButton}
+          />
+          <Text style={styles.callingCode}>+{callingCode}</Text>
           <TextInput
             style={styles.phoneInput}
             placeholder="Mobile Number"
@@ -80,33 +131,48 @@ const CompleteProfileScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Gender Selection Modal */}
-      <Modal
-        visible={showGenderModal}
-        transparent={true}
-        animationType="slide"
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Gender</Text>
-              <TouchableOpacity onPress={() => setShowGenderModal(false)}>
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
+      <Modal visible={showGenderModal} transparent animationType="slide">
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowGenderModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Gender</Text>
+                <TouchableOpacity onPress={() => setShowGenderModal(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={genderOptions}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={[
+                      styles.genderOption,
+                      gender === item.label && styles.selectedGenderOption
+                    ]} 
+                    onPress={() => handleSelectGender(item)}
+                  >
+                    <Text style={[
+                      styles.genderOptionText,
+                      gender === item.label && styles.selectedGenderOptionText
+                    ]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item) => item.id}
+              />
             </View>
-            <FlatList
-              data={genderOptions}
-              renderItem={renderGenderOption}
-              keyExtractor={item => item.id}
-            />
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
 
-      {/* Complete Profile Button */}
       <TouchableOpacity 
         style={styles.completeButton}
-        onPress={() => navigation.navigate('EnableLocationAccess')}
+        onPress={handleCompleteProfile}
       >
         <Text style={styles.completeButtonText}>Complete Profile</Text>
       </TouchableOpacity>
@@ -115,145 +181,70 @@ const CompleteProfileScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+  profileImageContainer: { alignSelf: 'center', position: 'relative' },
+  profileImage: { width: 100, height: 100, borderRadius: 50 },
+  profileImagePlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f5f5f5', justifyContent: 'center', alignItems: 'center' },
+  editButton: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFB800', width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  formContainer: { marginTop: 30 },
+  label: { fontSize: 16, fontWeight: '500', marginBottom: 5 },
+  phoneInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 10, paddingHorizontal: 10 },
+  callingCode: { marginLeft: 10, fontSize: 16 },
+  phoneInput: { flex: 1, fontSize: 16, paddingVertical: 10, paddingHorizontal: 10 },
+  genderSelector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 10, padding: 10, marginTop: 10 },
+  completeButton: { backgroundColor: '#FFB800', borderRadius: 30, padding: 15, alignItems: 'center', marginTop: 30 },
+  completeButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  genderText: { 
+    fontSize: 16, 
+    color: '#666'
+  },
+  modalOverlay: {
     flex: 1,
-    backgroundColor: '#fff',
-    padding: 20,
-  },
-  backButton: {
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#000',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    lineHeight: 24,
-    marginBottom: 40,
-  },
-  profileImageContainer: {
-    alignSelf: 'center',
-    marginBottom: 40,
-    position: 'relative',
-  },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  editButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#FFB800',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  formContainer: {
-    marginBottom: 40,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 10,
-    color: '#000',
-  },
-  phoneInputContainer: {
-    flexDirection: 'row',
-    marginBottom: 20,
-  },
-  countryCode: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    marginRight: 10,
-  },
-  phoneInput: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    fontSize: 16,
-  },
-  genderSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-  },
-  genderText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  completeButton: {
-    backgroundColor: '#FFB800',
-    borderRadius: 30,
-    paddingVertical: 16,
-    alignItems: 'center',
-    position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
-  },
-  completeButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
   modalContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'transparent',
+    width: '100%',
   },
   modalContent: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '50%',
+    paddingBottom: 20,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
   },
   genderOption: {
-    paddingVertical: 15,
+    padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  selectedGenderOption: {
+    backgroundColor: '#FFF8E7',
+  },
   genderOptionText: {
     fontSize: 16,
-    color: '#000',
+    color: '#333',
+  },
+  selectedGenderOptionText: {
+    color: '#FFB800',
+    fontWeight: '500',
+  },
+  countryPickerButton: {
+    paddingVertical: 5,
   },
 });
 
-export default CompleteProfileScreen; 
+export default CompleteProfileScreen;
